@@ -12,7 +12,7 @@ const gameRoutes = require("./routers/game.router");
 const port = process.env.PORT || 8000;
 const app = express();
 
-app.use(cors({ origin: ["http://localhost:5173","http://localhost:5174","http://localhost:5175"], credentials: true }));
+app.use(cors({ origin: ["http://localhost:5173","http://localhost:5174","http://localhost:5175","https://wonder-why-seven.vercel.app",], credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -31,7 +31,8 @@ const io = new Server(server, {
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      ,"http://localhost:5175"
+      ,"http://localhost:5175",
+      "https://wonder-why-seven.vercel.app",
     ],
     credentials: true,
   },

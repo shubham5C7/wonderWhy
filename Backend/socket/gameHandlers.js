@@ -8,7 +8,6 @@ const TOTAL_ROUNDS = 6;
 // When player makes a choices (rock/paper/scissors)
 function handleGameChoice(socket, io) {
   return async (choice, ack) => {
-
     // Get the room using sockets roomId
     const room = getRoom(socket.data.roomId);
     if (!room) return ack?.({ ok: false, message: "Not in a room" });
@@ -19,7 +18,8 @@ function handleGameChoice(socket, io) {
 
     // Validations user Inputs
     const VALID = ["rock", "paper", "scissors"];
-    if (!VALID.includes(choice)) return ack?.({ ok: false, message: "Invalid choice" });
+    if (!VALID.includes(choice))
+      return ack?.({ ok: false, message: "Invalid choice" });
 
     // Save players choise
     player.choice = choice;
@@ -32,20 +32,20 @@ function handleGameChoice(socket, io) {
     // Check if both players have have made there choice
     if (room.players.every((p) => p.choice)) {
       const [p1, p2] = room.players;
-        // Determine winner of the round
+      // Determine winner of the round
       const result = getWinner(p1.choice, p2.choice); // "p1" | "p2" | "draw"
 
-        // Increment round count and store round history
+      // Increment round count and store round history
       room.roundCount++;
       room.rounds.push({ p1: p1.choice, p2: p2.choice, result });
- // Update scores based on result
+      // Update scores based on result
       if (result === "p1") room.scores[0]++;
       if (result === "p2") room.scores[1]++;
-  // Convert result to player name null if draw.
+      // Convert result to player name null if draw.
       const roundWinner =
         result === "p1" ? p1.name : result === "p2" ? p2.name : null;
 
-        // Send round result to all players in the room
+      // Send round result to all players in the room
       io.to(room.roomId).emit("game:result", {
         players: [
           { name: p1.name, choice: p1.choice },
@@ -53,30 +53,38 @@ function handleGameChoice(socket, io) {
         ],
         winner: roundWinner,
       });
-  // Reset choices for next round
+      // Reset choices for next round
       room.players.forEach((p) => (p.choice = null));
- // Check if game has reached final round
+      // Check if game has reached final round
       if (room.roundCount === TOTAL_ROUNDS) {
         // Determine overall game winner
         const finalWinner =
           room.scores[0] > room.scores[1]
             ? p1.name
             : room.scores[1] > room.scores[0]
-            ? p2.name
-            : null;
+              ? p2.name
+              : null;
 
         // Emit game over event after short delay (for UI smoothness)
         setTimeout(() => {
           io.to(room.roomId).emit("game:over", { winner: finalWinner });
         }, 2200);
 
-          // Save game result into PostgreSQL database
+        // Save game result into PostgreSQL database
         try {
           await pool.query(
-            "INSERT INTO games(room_id, status, winner) VALUES ($1, $2, $3)",
-            [room.roomId, "finished", finalWinner ?? "draw"]
+            "INSERT INTO games(room_id, status, winner, player1, player2, rounds, scores) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            [
+              room.roomId,
+              "finished",
+              finalWinner ?? "draw",
+              p1.name,
+              p2.name,
+              JSON.stringify(room.rounds),
+              room.scores,
+            ],
           );
-         console.log(`Game saved: ${room.roomId}`);
+          console.log(`Game saved: ${room.roomId}`);
         } catch (err) {
           console.error("DB save failed:", err.message);
         }

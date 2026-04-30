@@ -76,7 +76,7 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
 
             return (
               <div
-                key={game._id}
+                key={game.id}
                 className={`rounded-lg border ${rowBorder} ${rowBg} px-3 py-2 flex items-center justify-between gap-2`}
               >
                 <div className="flex items-center gap-2 min-w-[80px]">
@@ -97,7 +97,7 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
                 </div>
 
                 <div className={`text-[10px] ${subText} whitespace-nowrap`}>
-                  {formatDate(game.createdAt)}
+                  {formatDate(game.created_at)}
                 </div>
               </div>
             );

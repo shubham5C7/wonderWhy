@@ -1,15 +1,13 @@
-import dotenv from "dotenv";
-dotenv.config();
-
-import express from "express";
-import cors from "cors";
-import cookieParser from "cookie-parser";
-import http from "http";
-import { Server } from "socket.io";
-
-import { setupSocket } from "./socket/index.js";
-import userRoutes from "./routers/user.router.js";
-import gameRoutes from "./routers/game.router.js";
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const http = require("http");                          
+const { Server } = require("socket.io");               
+const { setupSocket } = require("./socket/index");
+const userRoutes = require("./routers/user.router");
+const gameRoutes = require("./routers/game.router"); 
+const { pool } = require("./config/db");
 
 const port = process.env.PORT || 8000;
 const app = express();
@@ -27,7 +25,7 @@ app.use("/api/game", gameRoutes);
 const server = http.createServer(app);
 
 pool.query("SELECT NOW()")
-.then(()=>console.log("PostgerSQl Connected AWS RDC"))
+.then(() => console.log("PostgreSQL Connected to AWS RDS"))
 .catch((err)=>console.error("DB Connection Failed",err.message))
 
 const io = new Server(server, {
@@ -35,7 +33,7 @@ const io = new Server(server, {
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      ,"http://localhost:5175",
+      "http://localhost:5175",
     ],
     credentials: true,
   },

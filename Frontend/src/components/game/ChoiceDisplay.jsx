@@ -1,13 +1,7 @@
 import React from "react";
 import { CHOICES } from "./constants";
 
-export default function ChoiceDisplay({
-  choiceKey,
-  label,
-  isRevealed,
-  color,
-  isDark,
-}) {
+export default function ChoiceDisplay({ choiceKey,label,isRevealed,color, isDark,}) {
   const found = CHOICES.find((c) => c.key === choiceKey);
   const icon = found?.icon;
 
@@ -39,8 +33,8 @@ export default function ChoiceDisplay({
           border: isRevealed
             ? `2px dashed ${color}`
             : isDark
-            ? "2px dashed rgba(100,116,139,0.5)"
-            : "2px dashed rgba(156,163,175,0.6)",
+              ? "2px dashed rgba(100,116,139,0.5)"
+              : "2px dashed rgba(156,163,175,0.6)",
           background: isRevealed ? `${color}11` : "transparent",
           boxShadow: isRevealed
             ? `0 0 30px ${color}55, 0 0 60px ${color}22`
@@ -65,8 +59,8 @@ export default function ChoiceDisplay({
         {isRevealed
           ? "Locked in!"
           : isMe
-          ? "Waiting for move..."
-          : "Waiting for opponent..."}
+            ? "Waiting for move..."
+            : "Waiting for opponent..."}
       </p>
     </div>
   );

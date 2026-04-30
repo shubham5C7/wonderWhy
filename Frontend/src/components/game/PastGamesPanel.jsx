@@ -13,7 +13,7 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
   useEffect(() => {
     if (!roomId) return;
     setLoading(true);
-    fetch(`http://localhost:8000/api/game?roomId=${roomId}`, {
+    fetch(`http://18.60.40.223:8000/api/game?roomId=${roomId}`, {
       credentials: "include",
     })
       .then((r) => r.json())

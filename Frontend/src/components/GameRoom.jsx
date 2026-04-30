@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useReducer, useEffect, useCallback } from "react";
 import { useSelector } from "react-redux";
 import { useNavigate, useParams } from "react-router-dom";
 import { socket } from "../socket/socket";
@@ -8,199 +8,330 @@ import ChoiceDisplay from "./game/ChoiceDisplay";
 import HistoryCard from "./game/HistoryCard";
 import GameOverOverlay from "./game/GameOverOverlay";
 import PastGamesPanel from "./game/PastGamesPanel";
+import { FaTrophy, FaHandshake, FaHourglassHalf } from "react-icons/fa";
+import { MdSentimentDissatisfied } from "react-icons/md";
+
+
+// ACTION TYPES
+
+const ACTIONS = {
+  SET_OPP_NAME:     "SET_OPP_NAME",     // Update opponent's display name
+  SET_MY_CHOICE:    "SET_MY_CHOICE",    // Player picks rock / paper / scissors
+  SET_OPP_CHOSE:    "SET_OPP_CHOSE",    // Opponent has locked in a choice (blind)
+  SET_ROUND_RESULT: "SET_ROUND_RESULT", // Server returned result for the round
+  SET_ERROR:        "SET_ERROR",        // Socket callback reported an error
+  CLEAR_ROUND:      "CLEAR_ROUND",      // Reset per-round state after reveal delay
+  GAME_OVER:        "GAME_OVER",        // All rounds finished; store final winner
+  SHOW_OVERLAY:     "SHOW_OVERLAY",     // Show the game-over modal (after delay)
+  REFRESH_HISTORY:  "REFRESH_HISTORY",  // Nudge PastGamesPanel to re-fetch
+  RESET:            "RESET",            // Full reset for rematch
+};
+
+
+// INITIAL STATE
+
+const initialState = {
+  oppName:        "Opponent", // Opponent display name (hydrated from localStorage)
+  round:          1,          // Current round number (1-based)
+  scores:         [0, 0],     // [myScore, oppScore]
+  history:        [],         // Array of { p1Choice, p2Choice, result } per round
+  myChoice:       null,       // Key of the choice this player picked this round
+  opponentChose:  false,      // True once server emits game:opponent-chose
+  roundResult:    null,       // { myChoice, oppChoice, result } after reveal
+  showOverlay:    false,      // Whether the GameOverOverlay is visible
+  overallWinner:  null,       // Name of the overall game winner (or null for tie)
+  locked:         false,      // Prevents double-submission while socket acks
+  error:          "",         // Error message shown in the toast
+  refreshHistory: 0,          // Incremented to trigger PastGamesPanel re-fetch
+};
+
+
+// REDUCER
+
+function gameReducer(state, action) {
+  switch (action.type) {
+
+    // Opponent's name arrived (from room:ready or game:result events)
+    case ACTIONS.SET_OPP_NAME:
+      return { ...state, oppName: action.payload };
+
+    // Player clicked a choice button — lock immediately to prevent re-click
+    case ACTIONS.SET_MY_CHOICE:
+      return { ...state, myChoice: action.payload, locked: true };
+
+    // Blind notification that opponent has submitted (don't reveal what yet)
+    case ACTIONS.SET_OPP_CHOSE:
+      return { ...state, opponentChose: true };
+
+    // Server sent the round result — update scores, history, and round counter
+    // in one atomic update so no render sees partial/inconsistent state.
+    case ACTIONS.SET_ROUND_RESULT: {
+      const { me, opp, winner, myName } = action.payload;
+
+      // Derive win / lose / tie from the server's winner field
+      const result =
+        winner === null     ? "tie"
+        : winner === myName ? "win"
+        : "lose";
+
+      // Immutably update the score array
+      const nextScores = [...state.scores];
+      if (result === "win")  nextScores[0]++;
+      if (result === "lose") nextScores[1]++;
+
+      return {
+        ...state,
+        // Keep oppName fresh; ignore the "Opponent" placeholder
+        oppName:     opp?.name && opp.name !== "Opponent" ? opp.name : state.oppName,
+        roundResult: { myChoice: me?.choice, oppChoice: opp?.choice, result },
+        scores:      nextScores,
+        history:     [
+          ...state.history,
+          { p1Choice: me?.choice, p2Choice: opp?.choice, result },
+        ],
+        round: state.round + 1,
+      };
+    }
+
+    // Socket callback returned an error — surface the message and unlock
+    // so the player can try again. Empty payload just clears the toast.
+    case ACTIONS.SET_ERROR:
+      return {
+        ...state,
+        error:    action.payload,
+        myChoice: action.payload ? null  : state.myChoice,
+        locked:   action.payload ? false : state.locked,
+      };
+
+    // Called after the 2-second reveal delay to reset per-round UI state
+    case ACTIONS.CLEAR_ROUND:
+      return {
+        ...state,
+        myChoice:      null,
+        opponentChose: false,
+        roundResult:   null,
+        locked:        false,
+      };
+
+    // Game finished  (store the winner and bump refreshHistory so PastGamesPanel)
+    // fetches the newly saved game record from the server
+    case ACTIONS.GAME_OVER:
+      return {
+        ...state,
+        overallWinner:  action.payload,
+        refreshHistory: state.refreshHistory + 1,
+      };
+
+    // Show the game-over overlay (fired 200ms after GAME_OVER so the last
+    // round result animation has time to finish first)
+    case ACTIONS.SHOW_OVERLAY:
+      return { ...state, showOverlay: true };
+
+    // Manual increment if something else needs to trigger a history re-fetch
+    case ACTIONS.REFRESH_HISTORY:
+      return { ...state, refreshHistory: state.refreshHistory + 1 };
+
+    // Full reset for rematch — spread initialState for a clean slate, then
+    // optionally override oppName so the UI doesn't flash back to "Opponent"
+    case ACTIONS.RESET:
+      return {
+        ...initialState,
+        oppName: action.payload?.oppName ?? initialState.oppName,
+      };
+
+    // Unknown action — return state unchanged (keeps reducer pure & safe)
+    default:
+      return state;
+  }
+}
+
 
 export default function GameRoom() {
-  const navigate    = useNavigate();
+  const navigate            = useNavigate();
   const { id: paramRoomId } = useParams();
 
-  // ── FIX 1: Same name resolution as Home and WaitingRoom.
-  //           name → username → email so email-login users see their name.
+  // Pull identity and theme from Redux; fall back gracefully if fields missing
   const myName = useSelector(
     (s) =>
-      s.user.user?.name ??
+      s.user.user?.name     ??
       s.user.user?.username ??
-      s.user.user?.email ??
+      s.user.user?.email    ??
       "You"
   );
-  const roomId  = useSelector((s) => s.room?.roomId) || paramRoomId;
-  const isDark  = useSelector((state) => state.theme.isDark);
+  const roomId = useSelector((s) => s.room?.roomId) || paramRoomId;
+  const isDark = useSelector((state) => state.theme.isDark);
 
-  const [oppName, setOppName]           = useState("Opponent");
-  const [round, setRound]               = useState(1);
-  const [scores, setScores]             = useState([0, 0]);
-  const [history, setHistory]           = useState([]);
-  const [myChoice, setMyChoice]         = useState(null);
-  const [opponentChose, setOpponentChose] = useState(false);
-  const [roundResult, setRoundResult]   = useState(null);
-  const [showOverlay, setShowOverlay]   = useState(false);
-  const [overallWinner, setOverallWinner] = useState(null);
-  const [locked, setLocked]             = useState(false);
-  const [error, setError]               = useState("");
-  const [refreshHistory, setRefreshHistory] = useState(0);
+  // Single dispatch function replaces all the individual useState setters
+  const [state, dispatch] = useReducer(gameReducer, initialState);
 
-  // ── BUG 1 FIX: Use `opp_${roomId}_${myName}` so each user (on the same
-  //              browser/origin) has an isolated localStorage entry and never
-  //              reads the other player's saved opponent name.
+  // Destructure for convenient use in JSX
+  const {
+    oppName, round, scores, history,
+    myChoice, opponentChose, roundResult,
+    showOverlay, overallWinner, locked,
+    error, refreshHistory,
+  } = state;
+
+  // Per-user key: prevents two players on the same browser/origin from
+  // reading each other's saved opponent name out of localStorage
   const oppStorageKey = `opp_${roomId}_${myName}`;
 
+  // Restore persisted opponent name on mount
   useEffect(() => {
     const saved = localStorage.getItem(oppStorageKey);
-    if (saved) setOppName(saved);
+    if (saved) dispatch({ type: ACTIONS.SET_OPP_NAME, payload: saved });
   }, [oppStorageKey]);
 
-  const resetGame = useCallback(() => {
-    setRound(1);
-    setScores([0, 0]);
-    setHistory([]);
-    setMyChoice(null);
-    setOpponentChose(false);
-    setRoundResult(null);
-    setShowOverlay(false);
-    setOverallWinner(null);
-    setLocked(false);
-    setError("");
+  // Reset helper (used by rematch)
+  // Wrapped in useCallback so it's stable across renders and safe in the
+  // socket useEffect's dependency array without triggering re-registration
+  const resetGame = useCallback((newOppName) => {
+    dispatch({ type: ACTIONS.RESET, payload: { oppName: newOppName } });
   }, []);
 
+  // Socket event listeners
+  // All listeners are registered once (deps: myName, oppStorageKey, resetGame)
+  // and cleaned up on unmount to prevent memory leaks or duplicate handlers.
   useEffect(() => {
+
+    // Both players joined (identify the opponent)
     const onRoomReady = ({ players }) => {
       const opp = players?.find((p) => p.name !== myName);
       if (opp?.name) {
-        setOppName(opp.name);
-        localStorage.setItem(oppStorageKey, opp.name); // BUG 1 FIX: use per-user key
+        dispatch({ type: ACTIONS.SET_OPP_NAME, payload: opp.name });
+        localStorage.setItem(oppStorageKey, opp.name);
       }
     };
 
-    const onOpponentChose = () => setOpponentChose(true);
+    // Opponent locked in their choice show the "waiting on you" hint
+    const onOpponentChose = () =>
+      dispatch({ type: ACTIONS.SET_OPP_CHOSE });
 
+    // Round resolved(update state then schedule the reveal clear)
     const onResult = ({ players: ps, winner }) => {
       const me  = ps?.find((p) => p.name === myName);
       const opp = ps?.find((p) => p.name !== myName);
 
+      // Keep localStorage fresh with the latest confirmed opponent name
       if (opp?.name && opp.name !== "Opponent") {
-        setOppName(opp.name);
-        localStorage.setItem(oppStorageKey, opp.name); // BUG 1 FIX: use per-user key
+        localStorage.setItem(oppStorageKey, opp.name);
       }
 
-      const result =
-        winner === null ? "tie" : winner === myName ? "win" : "lose";
+      dispatch({ type: ACTIONS.SET_ROUND_RESULT, payload: { me, opp, winner, myName } });
 
-      setRoundResult({
-        myChoice: me?.choice,
-        oppChoice: opp?.choice,
-        result,
-      });
-
-      setScores((prev) => {
-        const next = [...prev];
-        if (result === "win")  next[0]++;
-        if (result === "lose") next[1]++;
-        return next;
-      });
-
-      setHistory((prev) => [
-        ...prev,
-        { p1Choice: me?.choice, p2Choice: opp?.choice, result },
-      ]);
-
-      setRound((r) => r + 1);
-
-      setTimeout(() => {
-        setMyChoice(null);
-        setOpponentChose(false);
-        setRoundResult(null);
-        setLocked(false);
-      }, 2000);
+      // After 2 s the reveal animation is done clear per-round UI state
+      setTimeout(() => dispatch({ type: ACTIONS.CLEAR_ROUND }), 2000);
     };
 
+    // All rounds done (store winner, then show overlay after a short delay)
     const onGameOver = ({ winner }) => {
-      setOverallWinner(winner ?? null);
-      setRefreshHistory((n) => n + 1);
-      setTimeout(() => setShowOverlay(true), 2200);
+      dispatch({ type: ACTIONS.GAME_OVER, payload: winner ?? null });
+      // 2.2 s gives the last round result time to animate before the overlay appears
+      setTimeout(() => dispatch({ type: ACTIONS.SHOW_OVERLAY }), 2200);
     };
 
+    // Opponent accepted rematch  (full reset, preserve new opponent name)
     const onRematchStart = ({ players }) => {
-      resetGame();
       const opp = players?.find((p) => p.name !== myName);
-      if (opp?.name) {
-        setOppName(opp.name);
-        localStorage.setItem(oppStorageKey, opp.name); // BUG 1 FIX: use per-user key
-      }
+      if (opp?.name) localStorage.setItem(oppStorageKey, opp.name);
+      resetGame(opp?.name);
     };
 
-    socket.on("room:ready",            onRoomReady);
-    socket.on("game:opponent-chose",   onOpponentChose);
-    socket.on("game:result",           onResult);
-    socket.on("game:over",             onGameOver);
-    socket.on("game:rematch-start",    onRematchStart);
+    // Register all listeners
+    socket.on("room:ready",          onRoomReady);
+    socket.on("game:opponent-chose", onOpponentChose);
+    socket.on("game:result",         onResult);
+    socket.on("game:over",           onGameOver);
+    socket.on("game:rematch-start",  onRematchStart);
 
+    // Cleanup: remove every listener on unmount or when deps change
     return () => {
-      socket.off("room:ready",           onRoomReady);
-      socket.off("game:opponent-chose",  onOpponentChose);
-      socket.off("game:result",          onResult);
-      socket.off("game:over",            onGameOver);
-      socket.off("game:rematch-start",   onRematchStart);
+      socket.off("room:ready",          onRoomReady);
+      socket.off("game:opponent-chose", onOpponentChose);
+      socket.off("game:result",         onResult);
+      socket.off("game:over",           onGameOver);
+      socket.off("game:rematch-start",  onRematchStart);
     };
-  }, [myName, roomId, oppStorageKey, resetGame]);
+  }, [myName, oppStorageKey, resetGame]);
 
+  // Choice handler
+  // Guards against double-clicks (locked) or re-picking after already chose
   const handleChoice = useCallback(
     (choice) => {
       if (locked || myChoice) return;
-      setMyChoice(choice);
-      setLocked(true);
+
+      // Optimistically update UI before server acks
+      dispatch({ type: ACTIONS.SET_MY_CHOICE, payload: choice });
 
       socket.emit("game:choice", choice, (res) => {
         if (!res?.ok) {
-          setError(res?.message || "Error sending choice");
-          setMyChoice(null);
-          setLocked(false);
+          // Server rejected — roll back choice and surface the error toast
+          dispatch({
+            type:    ACTIONS.SET_ERROR,
+            payload: res?.message || "Error sending choice",
+          });
         }
       });
     },
     [locked, myChoice]
   );
 
+  // Leave & rematch 
   const handleLeave = () => {
-    localStorage.removeItem(oppStorageKey); // BUG 1 FIX: use per-user key
+    localStorage.removeItem(oppStorageKey); // Clean up persisted opponent name
     socket.emit("room:leave");
     navigate("/");
   };
 
-  const handleRematch = () => {
-    socket.emit("game:rematch");
-  };
+  const handleRematch = () => socket.emit("game:rematch");
 
+  //  Derived UI values 
   const isWinning = scores[0] > scores[1];
   const isLosing  = scores[1] > scores[0];
 
+  // Status banner shown above the choice buttons
   const statusText =
-    roundResult?.result === "win"
-      ? "🎉 You Won This Round!"
-      : roundResult?.result === "lose"
-      ? "😤 You Lost This Round!"
-      : roundResult?.result === "tie"
-      ? "🤝 It's a Tie!"
-      : opponentChose
-      ? "⏳ Opponent chose — your turn!"
-      : "Make your move";
-
-  const bg         = isDark ? "bg-gray-950"             : "bg-gray-100";
-  const text       = isDark ? "text-white"               : "text-gray-900";
-  const cardBg     = isDark ? "bg-gray-900"              : "bg-white";
-  const cardBorder = isDark ? "border-gray-700"          : "border-gray-200";
-  const subText    = isDark ? "text-gray-400"            : "text-gray-900";
+    roundResult?.result === "win"  ? (
+       <span className="flex items-center gap-2 text-yellow-400">
+      <FaTrophy /> You Won This Round!
+    </span>
+    ):roundResult?.result === "lose" ? (
+      <span className="flex items-center gap-2 text-yellow-400">
+      <MdSentimentDissatisfied /> You Lost This Round!
+    </span>
+    ): roundResult?.result === "tie"  ?(
+      <span className="flex items-center gap-2 text-yellow-400">
+      <FaHandshake /> It's a Tie!
+    </span>
+    ): opponentChose ?(
+       <span className="flex items-center gap-2 text-yellow-400">
+      <FaHourglassHalf /> Opponent chose — your turn!
+    </span>
+    ) :(
+       <span className="text-yellow-400">Make your move</span>
+    )
+    
+  // Theme-aware Tailwind classes
+  const bg         = isDark ? "bg-gray-950"                  : "bg-gray-100";
+  const text       = isDark ? "text-white"                    : "text-gray-900";
+  const cardBg     = isDark ? "bg-gray-900"                   : "bg-white";
+  const cardBorder = isDark ? "border-gray-700"               : "border-gray-200";
+  const subText    = isDark ? "text-gray-400"                 : "text-gray-900";
   const btnBg      = isDark ? "bg-gray-900 hover:bg-gray-800" : "bg-white hover:bg-gray-50";
-  const btnBorder  = isDark ? "border-gray-700"          : "border-gray-300";
+  const btnBorder  = isDark ? "border-gray-700"               : "border-gray-300";
 
+  //Render 
   return (
     <div className={`min-h-screen ${bg} ${text} px-4 py-4 transition-colors duration-300`}>
 
+      {/* Error toast ( fixed at top-centre, disappears when error clears) */}
       {error && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-500/20 border border-red-500 text-red-400 px-4 py-2 rounded-lg text-sm z-50">
           {error}
         </div>
       )}
 
-      {/* TOP BAR */}
+      {/* Room ID pill */}
       <div className="flex justify-center mb-4">
         <div className={`inline-flex items-center ${cardBg} border ${cardBorder} rounded-md px-3 py-1.5`}>
           <span className={`text-[10px] ${subText} mr-2`}>ROOM</span>
@@ -208,34 +339,38 @@ export default function GameRoom() {
         </div>
       </div>
 
-      {/* SCORE */}
+      {/* SCOREBOARD */}
       <div className="flex items-center justify-center gap-8 mb-6">
         <PlayerCard name={myName} score={scores[0]} isMe isDark={isDark} />
+
         <div className="text-center">
           <div className="text-2xl font-bold">
-            {scores[0]}{" "}
-            <span className={`${subText} mx-1`}>vs</span>{" "}
+            {scores[0]}
+            <span className={`${subText} mx-1`}>vs</span>
             {scores[1]}
           </div>
           <p className={`text-xs ${subText} mt-1`}>
             {isWinning ? "You lead" : isLosing ? "Opponent leads" : "Even"}
           </p>
         </div>
+
         <PlayerCard name={oppName} score={scores[1]} isDark={isDark} />
       </div>
 
-      {/* ROUND */}
+      {/*  ROUND INDICATOR */}
       <div className="flex justify-center mb-6">
         <div className={`px-5 py-1 rounded-full ${cardBg} border ${cardBorder} text-xs tracking-wide`}>
           ROUND {Math.min(round, TOTAL_ROUNDS)} / {TOTAL_ROUNDS}
         </div>
       </div>
 
-      {/* GAME AREA */}
+      {/* GAME AREA( Choice displays && buttons)  */}
       <div className="flex flex-col items-center gap-5">
         <p className={`text-xs ${subText}`}>{statusText}</p>
 
         <div className="flex items-center justify-center gap-12">
+
+          {/* Left panel ( shows what this player chose) */}
           <ChoiceDisplay
             label="YOU"
             choiceKey={roundResult?.myChoice || myChoice}
@@ -244,8 +379,10 @@ export default function GameRoom() {
             isDark={isDark}
           />
 
+          {/* Centre (clickable choice buttons) */}
           <div className="flex gap-10">
             {CHOICES.map((c) => {
+              // Cyan highlight if my pick, purple if opponent's pick after reveal
               const isMyPick  = (roundResult?.myChoice || myChoice) === c.key;
               const isOppPick = roundResult?.oppChoice === c.key;
 
@@ -273,6 +410,7 @@ export default function GameRoom() {
             })}
           </div>
 
+          {/* Right panel opponent's choice */}
           <ChoiceDisplay
             label={oppName}
             choiceKey={roundResult?.oppChoice}
@@ -283,10 +421,10 @@ export default function GameRoom() {
         </div>
       </div>
 
-      {/* HISTORY + PAST GAMES */}
+      {/* HISTORY && PAST GAMES (side-by-side)*/}
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-14 max-w-6xl mx-auto">
 
-        {/* CURRENT GAME HISTORY */}
+        {/* Current game: round-by-round history cards */}
         <div className={`${cardBg} border ${cardBorder} rounded-lg p-4`}>
           <h3 className={`text-center text-xs ${subText} mb-3`}>HISTORY</h3>
           <div className="flex flex-wrap gap-2 justify-center">
@@ -296,16 +434,16 @@ export default function GameRoom() {
           </div>
         </div>
 
+        {/* Previously played games (refreshKey increments on GAME_OVER) */}
         <PastGamesPanel
           roomId={roomId}
           myName={myName}
           isDark={isDark}
           refreshKey={refreshHistory}
         />
-
       </div>
 
-      {/* FOOTER */}
+      {/*  FOOTER: Leave / Rematch*/}
       <div className="flex justify-between items-center mt-8 max-w-4xl mx-auto">
         <button
           onClick={handleLeave}
@@ -321,6 +459,7 @@ export default function GameRoom() {
         </button>
       </div>
 
+      {/*GAME OVER OVERLAY (sits on top of everything)*/}
       {showOverlay && (
         <GameOverOverlay
           winner={overallWinner}

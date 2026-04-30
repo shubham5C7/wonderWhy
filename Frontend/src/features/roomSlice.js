@@ -1,13 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
 
-// Shape:
-// {
-//   roomId: "FU4KP6" | null,
-//   userName: "shubham" | null,
-//   players: [{ name, socketId }],
-//   status: "idle" | "waiting" | "ready",
-//   error: string | null,
-// }
 
 const initialState = {
   roomId: null,

@@ -29,31 +29,14 @@ export default function WaitingRoom() {
   useEffect(() => {
     if (!roomId || !userName) return;
 
-    // ── THE FIX ───────────────────────────────────────────────────────────
-    // Register room:ready listener FIRST, then emit room:join.
-    // This guarantees the listener exists before the server can fire back.
-    //
-    // Previously, Home.jsx emitted room:join BEFORE navigating here.
-    // The server fired room:ready instantly, but WaitingRoom hadn't mounted
-    // yet — so the event was missed and the user stayed stuck forever.
-    //
-    // Now Home.jsx only navigates (no emit). WaitingRoom always emits
-    // room:join after the listener is set up, so room:ready is never missed.
-    //
-    // "waiting" = creator (room:create already joined them on the server).
-    //             Don't emit room:join again or server sees a duplicate.
-    // "idle"    = joiner navigated here from Home, or direct URL / refresh.
-    //             Emit room:join now — listener is already registered above.
-    // ─────────────────────────────────────────────────────────────────────
-
     const handleRoomReady = () => {
       navigate(`/game/${roomId}`);
     };
 
-    // 1. Register listener FIRST
+    // Register listener FIRST
     socket.on("room:ready", handleRoomReady);
 
-    // 2. THEN emit — so server's response is always caught
+    //THEN emit(so server's response is always caught)
     if (roomStatus === "idle") {
       socket.emit("room:join", roomId, userName);
     }

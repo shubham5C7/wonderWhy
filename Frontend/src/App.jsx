@@ -17,12 +17,14 @@ const App = () => {
   const dispatch = useDispatch();
   useEffect(() => {
     dispatch(fetchCurrentUser());
-        setupSocketListeners(socket, dispatch); 
+    setupSocketListeners(socket, dispatch); 
   }, [dispatch]);
   return (
     <BrowserRouter>
       <NavBar />
       <Routes>
+    <Route path="/signup" element={<Signup />} />
+    <Route path="/login" element={<Login />} />
         <Route
           path="/"
           element={
@@ -50,8 +52,6 @@ const App = () => {
           }
         />
 
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/login" element={<Login />} />
       </Routes>
     </BrowserRouter>
   );

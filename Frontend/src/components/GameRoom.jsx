@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect, useCallback } from "react";
+import React, { useReducer, useEffect, useCallback, useRef } from "react";
 import { useSelector } from "react-redux";
 import { useNavigate, useParams } from "react-router-dom";
 import { socket } from "../socket/socket";
@@ -149,6 +149,7 @@ function gameReducer(state, action) {
 export default function GameRoom() {
   const navigate            = useNavigate();
   const { id: paramRoomId } = useParams();
+  const vantaRef = useRef(null);
 
   // Pull identity and theme from Redux; fall back gracefully if fields missing
   const myName = useSelector(
@@ -254,6 +255,30 @@ export default function GameRoom() {
     };
   }, [myName, oppStorageKey, resetGame]);
 
+// Replace your Vanta useEffect with this:
+useEffect(() => {
+  if (!window.VANTA || !vantaRef.current) return; // ← add !vantaRef.current check
+
+  const effect = window.VANTA.GLOBE({
+    el: vantaRef.current,
+    mouseControls: true,
+    touchControls: true,
+    gyroControls: false,
+    minHeight: 200,
+    minWidth: 200,
+    scale: 1,
+    scaleMobile: 1,
+    color: 0x595191,
+    color2: 0xffffff,
+    size: 1,
+    backgroundColor: isDark ? 0x0f172a : 0xf3f4f6
+  });
+
+  return () => {
+    if (effect) effect.destroy();
+  };
+}, [isDark]);
+
   // Choice handler
   // Guards against double-clicks (locked) or re-picking after already chose
   const handleChoice = useCallback(
@@ -322,7 +347,7 @@ export default function GameRoom() {
 
   //Render 
   return (
-    <div className={`min-h-screen ${bg} ${text} px-4 py-4 transition-colors duration-300`}>
+    <div ref={vantaRef} className={`min-h-screen ${bg} ${text} px-4 py-4 transition-colors duration-300`}>
 
       {/* Error toast ( fixed at top-centre, disappears when error clears) */}
       {error && (

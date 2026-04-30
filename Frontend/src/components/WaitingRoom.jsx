@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useSelector } from "react-redux";
 import { useParams, useNavigate } from "react-router-dom";
 import { FiCopy, FiCheck, FiLogOut } from "react-icons/fi";
@@ -8,6 +8,7 @@ export default function WaitingRoom() {
   const isDark     = useSelector((state) => state.theme.isDark);
   const navigate   = useNavigate();
   const { id: roomId } = useParams();
+  const vantaRef = useRef(null);
 
   const userName = useSelector(
     (state) =>
@@ -47,12 +48,65 @@ export default function WaitingRoom() {
     };
   }, [roomId, userName, navigate, roomStatus]);
 
+  useEffect(() => {
+  if (!window.VANTA) return;
+
+  const effect = window.VANTA.BIRDS({
+    el: vantaRef.current,
+    mouseControls: true,
+    touchControls: true,
+    gyroControls: false,
+    minHeight: 200,
+    minWidth: 200,
+    scale: 1,
+    scaleMobile: 1,
+
+    backgroundColor: isDark ? 0x020617 : 0xf3f4f6,
+
+    color1: 0xff0000,
+    color2: 0x00d1ff,
+
+    birdSize: 1,
+    wingSpan: 30,
+    speedLimit: 5,
+    separation: 20,
+    alignment: 20,
+    cohesion: 20,
+    quantity: 5
+  });
+
+  return () => {
+    if (effect) effect.destroy();
+  };
+}, [isDark]);
+
   return (
     <div
-      className={`min-h-screen transition-all duration-300 relative ${
+      className={`min-h-screen overflow-hidden transition-all duration-300 relative ${
         isDark ? "bg-gray-900 text-white" : "bg-gray-100 text-black"
       }`}
     >
+        {/*  BACKGROUND */}
+         <div ref={vantaRef} className="absolute inset-0 z-0">
+           {/* Gradient */}
+        <div
+          className={`absolute inset-0 ${
+            isDark
+              ? "bg-[radial-gradient(circle_at_20%_20%,#1e3a8a,transparent_40%),radial-gradient(circle_at_80%_30%,#7c3aed,transparent_40%),radial-gradient(circle_at_50%_80%,#0ea5e9,transparent_40%),#020617]"
+              : "bg-[radial-gradient(circle_at_20%_20%,#93c5fd,transparent_40%),radial-gradient(circle_at_80%_30%,#c4b5fd,transparent_40%),radial-gradient(circle_at_50%_80%,#67e8f9,transparent_40%),#f8fafc]"
+          }`}
+        />
+           {/* Glow blobs */}
+        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500/20 blur-[120px] rounded-full animate-pulse"></div>
+        <div className="absolute bottom-10 right-10 w-72 h-72 bg-purple-500/20 blur-[120px] rounded-full animate-pulse"></div>
+
+        {/* Floating shapes */}
+        <div className="floating-shape left-10 top-40"></div>
+        <div className="floating-shape right-20 top-60 delay-200"></div>
+        <div className="floating-shape left-1/2 bottom-20 delay-500"></div>
+         </div>
+         
+        
       {/* ROOM CODE CARD */}
       <div
         className={`absolute top-20 left-12 w-80 rounded-xl border p-4 shadow-xl backdrop-blur-md transition-all

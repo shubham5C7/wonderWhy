@@ -1,4 +1,4 @@
-import React, { useReducer } from "react";
+import React, { useReducer, useEffect, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { FaPlus, FaLightbulb } from "react-icons/fa";
 import { IoPeopleSharp, IoBulbOutline, IoPeopleOutline } from "react-icons/io5";
@@ -44,6 +44,7 @@ export default function Home() {
   const user = useSelector((state) => state.user.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const vantaRef = useRef(null);
 
   const [state, dispatchLocal] = useReducer(reducer, initialState);
   const { loading, showJoinModal, joinCode, joinError } = state;
@@ -90,17 +91,45 @@ export default function Home() {
     navigate(`/room/${code}`);
   };
 
+  useEffect(() => {
+  if (!window.VANTA) return;
+
+  const effect = window.VANTA.NET({
+    el: vantaRef.current,
+    mouseControls: true,
+    touchControls: true,
+    gyroControls: false,
+    minHeight: 200,
+    minWidth: 200,
+    scale: 1,
+    scaleMobile: 1,
+    color: isDark ? 0x3b82f6 : 0x0a0af0,
+    backgroundColor: isDark ? 0x111827 : 0xa19eaf,
+    points: 10,
+    maxDistance: 20,
+    spacing: 15,
+    showDots: true
+  });
+
+  return () => {
+    if (effect) effect.destroy();
+  };
+}, [isDark]);
+
   return (
     <div className="relative min-h-screen overflow-hidden">
       {/* Background */}
-      <div className="absolute inset-0 z-0">
-        <div className={`${isDark ? "bg-gray-900" : "bg-gray-200"} w-full h-full`} />
-        <IoBulbOutline className="absolute top-10 left-10 text-yellow-300 opacity-5 blur-md text-7xl" />
-        <FiCpu className="absolute top-1/3 right-20 text-blue-300 opacity-5 blur-md text-8xl" style={{ strokeWidth: 1 }} />
-        <IoPeopleOutline className="absolute bottom-20 left-1/4 text-gray-300 opacity-5 blur-md text-8xl" />
-        <FiZap className="absolute bottom-10 right-10 text-yellow-200 opacity-5 blur-md text-7xl" style={{ strokeWidth: 1 }} />
-      </div>
+  {/* Background */}
+    <div ref={vantaRef} className="absolute inset-0 z-0">
+      {/* Optional overlay (for light/dark tint) */}
+      <div className={`${isDark ? "bg-gray-900/60" : "bg-gray-200/60"} w-full h-full`} />
 
+      {/* Decorative Icons */}
+      <IoBulbOutline className="absolute top-10 left-10 text-yellow-300 opacity-5 blur-md text-7xl" />
+      <FiCpu className="absolute top-1/3 right-20 text-blue-300 opacity-5 blur-md text-8xl" style={{ strokeWidth: 1 }} />
+      <IoPeopleOutline className="absolute bottom-20 left-1/4 text-gray-300 opacity-5 blur-md text-8xl" />
+      <FiZap className="absolute bottom-10 right-10 text-yellow-200 opacity-5 blur-md text-7xl" style={{ strokeWidth: 1 }} />
+    </div>
       {/* Content */}
       <div className={`relative z-10 flex flex-col items-center ${isDark ? "text-white" : "text-black"}`}>
         {/* Logo */}

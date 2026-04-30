@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { FaTrophy, FaSkull, FaHandshake } from "react-icons/fa";
 
 export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) { 
   const [games, setGames] = useState([]);
@@ -35,21 +36,32 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
   };
 
   const getResult = (game) => {
-    if (!game.finalWinner || game.finalWinner === "draw")
-      return { label: "Draw", color: "#facc15", emoji: "🤝" };
-    if (game.finalWinner === myName)
-      return { label: "You Won", color: "#4ade80", emoji: "🏆" };
-    return { label: "You Lost", color: "#f87171", emoji: "💀" };
+    if (!game.winner || game.winner === "draw")
+      return { 
+        label: "Draw", 
+        color: "#facc15", 
+        emoji: <FaHandshake style={{ color: "#facc15" }} size={18} /> 
+      };
+    if (game.winner === myName)
+      return { 
+        label: "You Won", 
+        color: "#4ade80", 
+        emoji: <FaTrophy style={{ color: "#facc15" }} size={18} /> 
+      };
+    return { 
+      label: "You Lost", 
+      color: "#f87171", 
+      emoji: <FaSkull style={{ color: "#facc15" }} size={18} /> 
+    };
   };
 
   const getScore = (game) => {
-    const p1 = game.players[0];
-    const p2 = game.players[1];
-    const p1Wins = game.rounds.filter((r) => r.winner === "p1").length;
-    const p2Wins = game.rounds.filter((r) => r.winner === "p2").length;
-    const meIdx = game.players.indexOf(myName);
-    const myWins  = meIdx === 0 ? p1Wins : p2Wins;
-    const oppWins = meIdx === 0 ? p2Wins : p1Wins;
+    const p1 = game.player1 ?? "";
+    const p2 = game.player2 ?? "";
+    const scores = game.scores ?? [0, 0];
+    const meIdx = [p1, p2].indexOf(myName);
+    const myWins  = meIdx >= 0 ? (scores[meIdx] ?? 0) : 0;
+    const oppWins = meIdx === 0 ? (scores[1] ?? 0) : (scores[0] ?? 0);
     const oppName = meIdx === 0 ? p2 : p1;
     return { myWins, oppWins, oppName };
   };
@@ -80,7 +92,7 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
                 className={`rounded-lg border ${rowBorder} ${rowBg} px-3 py-2 flex items-center justify-between gap-2`}
               >
                 <div className="flex items-center gap-2 min-w-[80px]">
-                  <span className="text-lg">{emoji}</span>
+                  <span className="flex items-center">{emoji}</span>
                   <span className="text-xs font-bold" style={{ color }}>
                     {label}
                   </span>
@@ -93,7 +105,7 @@ export default function PastGamesPanel({ roomId, myName, isDark, refreshKey }) {
                 </div>
 
                 <div className={`text-xs ${subText} truncate max-w-[80px] text-right`}>
-                  vs {oppName}
+                  vs {oppName ?? "Unknown"}
                 </div>
 
                 <div className={`text-[10px] ${subText} whitespace-nowrap`}>
